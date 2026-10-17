@@ -1,8 +1,12 @@
 <meta charset="utf-8">
 <title>Hexmoor</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#1b2733">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&display=swap">
 <style>
 :root{
+  --k:1;
   --bg:#0f1a24; --panel:rgba(13,22,31,.84); --panel2:rgba(20,32,44,.96); --line:rgba(233,225,204,.12);
   --ink:#e9e1cc; --muted:#a4a999; --brass:#c9962e; --brass-ink:#1c1406; --danger:#c8392b; --good:#5da65b;
   --wood:#3f7a3a; --brick:#b5532e; --sheep:#9ccc65; --wheat:#e6c14a; --ore:#8a94a3;
@@ -148,6 +152,9 @@ body.side .chips{display:grid;grid-template-columns:repeat(5,1fr)}
 body.side .chip{min-width:0}
 body.side .actions{display:grid;grid-template-columns:1fr 1fr}
 body.side .actions .primary,body.side .actions .tok{grid-column:1/-1;margin-left:0!important}
+.modal{zoom:var(--k);max-height:calc(90vh / var(--k))}
+#toast{font-size:calc(16px * var(--k))}
+body.side #topbar,body.side #players,body.side #bottom{zoom:var(--k)}
 @media (max-width:760px){
   #players{width:150px}
   .pl{padding:6px 8px;font-size:12.5px}
@@ -1418,12 +1425,12 @@ function fitBoard() {
   const side = innerWidth >= 1000 && innerWidth / innerHeight >= 1.4 && vb && vb.width;
   document.body.classList.toggle('side', !!side);
   if (side) {
-    const m = 14, gap = 24, L = 280, R = 340, h = innerHeight - 2 * m;
-    const bw = Math.min(innerWidth - 2 * m - L - R - 2 * gap, h * vb.width / vb.height), left = Math.max(m, (innerWidth - L - R - 2 * gap - bw) / 2);
-    Object.assign(tb.style, { left: left + 'px', width: L + 'px' });
-    Object.assign(pl.style, { left: left + 'px', width: L + 'px', top: tb.getBoundingClientRect().bottom + 10 + 'px' });
-    Object.assign(root.style, { left: left + L + gap + 'px', top: m + 'px', width: bw + 'px', height: h + 'px' });
-    Object.assign(bt.style, { left: left + L + gap + bw + gap + 'px', width: R + 'px' });
+    const k = PREFS.text, m = 14, gap = 24, L = 280, R = 330, Lk = L * k, Rk = R * k, h = innerHeight - 2 * m;
+    const bw = Math.min(innerWidth - 2 * m - Lk - Rk - 2 * gap, h * vb.width / vb.height), left = Math.max(m, (innerWidth - Lk - Rk - 2 * gap - bw) / 2);
+    Object.assign(tb.style, { left: left / k + 'px', width: L + 'px' });
+    Object.assign(pl.style, { left: left / k + 'px', width: L + 'px', top: (tb.getBoundingClientRect().bottom + 10) / k + 'px' });
+    Object.assign(root.style, { left: left + Lk + gap + 'px', top: m + 'px', width: bw + 'px', height: h + 'px' });
+    Object.assign(bt.style, { left: (left + Lk + gap + bw + gap) / k + 'px', width: R + 'px' });
     return;
   }
   for (const e of [tb, pl, bt]) e.style.left = e.style.width = e.style.top = '';
@@ -1755,6 +1762,13 @@ function showGameOver() {
   modal({ title: `${w.name} rules Hexmoor`, body: el('div', { html: `<p>After ${G.turn} turns, ${esc(w.name)} reaches ${totalVP(w.id)} points.</p><table class="costs">${rows}</table>` }), buttons: [{ label: 'Admire the island', value: false }, { label: 'New game', value: true, primary: true }] })
     .then(v => { if (v) showStart(); });
 }
+const IS_XBOX = /Xbox/i.test(navigator.userAgent);
+const PREFS = { full: true, text: IS_XBOX ? 1.3 : 1 };
+try { Object.assign(PREFS, JSON.parse(localStorage.getItem('hexmoor.prefs') || '{}')); } catch (e) { }
+function setTextSize(k) { PREFS.text = k; document.documentElement.style.setProperty('--k', k); fitBoard(); }
+function savePrefs() { try { localStorage.setItem('hexmoor.prefs', JSON.stringify(PREFS)); } catch (e) { } }
+function goFull() { if (PREFS.full && document.fullscreenEnabled && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => { }); }
+setTextSize(PREFS.text);
 function showStart() {
   const saved = loadSave();
   const rows = []; const cfg = { count: 4, players: [] };
@@ -1796,6 +1810,8 @@ function showStart() {
   const [fishBox, fishRow] = vbox('v-fish', 'Fishermen', 'A lake and fishing grounds pay fish, which buy perks. Watch out for the old boot.', restyle);
   const [riverBox, riverRow] = vbox('v-rivers', 'Rivers', 'Rivers need bridges; building by them earns gold. Richest +1, poorest −2.', restyle);
   const pass = el('input', { type: 'checkbox', id: 'pass', checked: true });
+  const textSel = el('select', { id: 'textsize', onchange: () => setTextSize(+textSel.value) }, [[1, 'Normal'], [1.3, 'Large (TV)'], [1.6, 'Extra large']].map(([v, t]) => el('option', { value: v, selected: v === PREFS.text }, t)));
+  const fullBox = el('input', { type: 'checkbox', id: 'fullscreen', checked: PREFS.full });
   const body = el('div', {}, el('h1', { class: 'title' }, 'Hexmoor'), el('p', { class: 'tagline' }, 'Settle the island. Trade sharp. Build the longest road.'),
     el('div', { class: 'field' }, el('label', { for: 'pcount' }, 'Players'), countSel), list, duoRow,
     el('div', { class: 'field' }, el('label', { for: 'target' }, 'Play to'), target),
@@ -1803,12 +1819,15 @@ function showStart() {
     el('div', { class: 'field' }, el('label', { for: 'theme' }, 'Theme'), themeSel),
     el('div', { class: 'field' }, el('label', { for: 'friendly' }, 'Friendly robber (spares players with 2 points or fewer)'), friendly),
     el('div', { class: 'variants' }, el('h3', {}, 'Variants'), cardRow, harborRow, fishRow, riverRow),
-    el('div', { class: 'field' }, el('label', { for: 'pass' }, 'Pass-and-play privacy screen between human turns'), pass));
+    el('div', { class: 'field' }, el('label', { for: 'pass' }, 'Pass-and-play privacy screen between human turns'), pass),
+    el('div', { class: 'field' }, el('label', { for: 'textsize' }, 'Text size'), textSel),
+    document.fullscreenEnabled ? el('div', { class: 'field' }, el('label', { for: 'fullscreen' }, 'Play full screen (hides the browser bars)'), fullBox) : null);
   const buttons = [];
   if (saved && saved.phase !== 'over') buttons.push({ label: 'Resume saved game', value: 'resume' });
   buttons.push({ label: 'Begin', value: 'new', primary: true });
   preview();
   modal({ title: '', body, buttons }).then(v => {
+    PREFS.full = fullBox.checked; savePrefs(); goFull();  // still inside the click, so the browser allows full screen
     if (v === 'resume') { resumeGame(saved); return; }
     const n = +countSel.value; const players = []; const usedColors = new Set();
     for (let i = 0; i < n; i++) { let c = +rows[i].col.value; while (usedColors.has(c)) c = (c + 1) % PLAYER_COLORS.length; usedColors.add(c); players.push({ name: rows[i].name.value.trim() || `Player ${i + 1}`, human: rows[i].kind.value === 'human', color: c }); }
