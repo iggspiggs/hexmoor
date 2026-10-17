@@ -149,6 +149,8 @@ table.costs td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:le
   .chip b{font-size:16px}
   .two{grid-template-columns:1fr}
 }
+#padring{position:fixed;pointer-events:none;z-index:70;border:3px solid var(--brass);border-radius:10px;box-shadow:0 0 0 2px rgba(0,0,0,.55),0 0 18px rgba(201,150,46,.85);transition:left .09s,top .09s,width .09s,height .09s;display:none}
+body.pad :focus-visible{outline:none}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
 </style>
@@ -164,6 +166,7 @@ table.costs td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:le
 </div>
 <div id="toast"></div>
 <div id="modal-root"></div>
+<div id="padring"></div>
 
 <script>
 /* =========================================================
@@ -1437,7 +1440,7 @@ S.syncPieces = function () {
   }
 };
 S.pulseHexes = function (ids) { for (const id of ids) { const g = S.tiles[id]; g.classList.remove('glow'); void g.getBBox(); g.classList.add('glow'); setTimeout(() => g.classList.remove('glow'), 900); } };
-// pick markers: glowing spots in the current player's colour, clickable (and later, controller-focusable)
+// pick markers: glowing spots in the current player's colour, clickable and controller-focusable
 S.showMarkers = function (kind, ids, color) {
   S.hideMarkers(); const L = S.layers.markers;
   for (const id of ids) {
@@ -1699,6 +1702,7 @@ function showHelp() {
       ${G && G.opts.fish ? '<p><b>Fishermen.</b> The lake pays fish on 2, 3, 11 and 12; each fishing ground on its number (settlement 1 draw, city 2). Spend fish: 2 send the robber away, 3 steal a card, 4 take any resource, 5 build a road, 7 take a development card. Fish can’t be stolen or lost to a 7. Whoever holds the old boot needs 1 extra point to win, and may pass it to a player with at least as many points.</p>' : ''}
       ${G && G.opts.rivers ? '<p><b>Rivers.</b> Roads can’t run along a river; build a bridge (1 Wood, 2 Brick) there instead. Gold: +1 for a settlement or road by a river, +3 for a bridge. Pay 2 gold for a resource (twice a turn, then 4). The richest player gets +1 point; everyone tied for the fewest coins gets −2.</p>' : ''}
       ${G && G.opts.friendly ? '<p><b>Friendly robber.</b> The robber can’t be placed next to, or steal from, a player with 2 points or fewer.</p>' : ''}
+      <p><b>Controller.</b> D-pad or left stick moves the highlight, A presses, B cancels or closes, Y rolls the dice or ends your turn, Menu opens these rules. Arrow keys, Enter and Esc do the same on a keyboard.</p>
       <p class="hint">Settlements need two edges of space from any other building and must touch your road. A 7 makes everyone with more than 7 cards discard half, then the roller moves the robber and steals a card. Trade with the bank at 4:1, or 3:1 / 2:1 from a harbor. One development card per turn, never on the turn it was bought.</p>` }),
     buttons: [{ label: 'Close', value: true, primary: true }]
   });
@@ -1784,6 +1788,118 @@ function resumeGame(saved) {
   if (G.sbp != null) { G.cur = G.sbp; G.sbp = null; } // a special build in progress is skipped on resume
   B = buildBoard(G.spec); S.buildBoard(); showPanels(true); S.autoRotate = false; renderHUD(); renderLog(); log('The chronicle resumes.'); runGame();
 }
+
+// ---------- controller ----------
+// The D-pad or left stick moves a focus ring between whatever can be pressed right now: the open window if there
+// is one, otherwise the glowing board spots plus the action buttons. A presses, B backs out, Y rolls or ends the turn,
+// Menu opens the rules. Arrow keys, Enter and Esc do the same on a keyboard; the ring hides again when the mouse moves.
+const PAD = { on: false, cur: null, scope: null, label: '', last: null, held: {}, padAt: 0 };
+try { navigator.gamepadInputEmulation = 'gamepad'; } catch (e) { }  // older Xbox Edge: give the controller to the page, not the cursor
+const padRing = $('#padring');
+function padVisible(e) { if (e.disabled || e.closest('[hidden]')) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; }
+function padTop() { const o = $('#modal-root').querySelectorAll('.overlay'); return o[o.length - 1] || null; }
+function padScope() { return padTop() || S.pick || 'hand'; }
+function padItems() {
+  const ov = padTop();
+  const list = ov ? [...ov.querySelectorAll('button, select, input')] : [...(S.pick ? $('#board').querySelectorAll('.mk') : []), ...$('#bottom').querySelectorAll('button')];
+  return list.filter(padVisible);
+}
+function padCenter(e) { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+function padNearest(items, p) { let best = items[0], bd = Infinity; for (const e of items) { const c = padCenter(e), d = (c.x - p.x) ** 2 + (c.y - p.y) ** 2; if (d < bd) { bd = d; best = e; } } return best; }
+function padDefault(items) {
+  if (padTop()) return items.find(e => e === document.activeElement) || items.find(e => e.classList.contains('primary')) || items[0];
+  const mk = items.filter(e => e.classList.contains('mk'));
+  if (mk.length) return padNearest(mk, PAD.last || { x: innerWidth / 2, y: innerHeight / 2 });  // start near the last spot you chose
+  return items.find(e => e.classList.contains('primary')) || items[0];
+}
+function padFocus(e) {
+  PAD.cur = e || null; PAD.label = e ? e.textContent : '';
+  if (!e) return;
+  if (e instanceof SVGElement) { PAD.last = padCenter(e); if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); }
+  else { e.focus({ preventScroll: true }); e.scrollIntoView({ block: 'nearest' }); }
+}
+function padCycle(sel, d) {
+  const n = sel.options.length; let i = sel.selectedIndex;
+  for (let k = 0; k < n; k++) { i = (i + d + n) % n; if (!sel.options[i].disabled) break; }
+  sel.selectedIndex = i; sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function padMove(dx, dy) {
+  const items = padItems(); if (!items.length) return;
+  if (!PAD.on || !PAD.cur || !items.includes(PAD.cur)) { PAD.on = true; document.body.classList.add('pad'); padFocus(padDefault(items)); return; }
+  if (PAD.cur.tagName === 'SELECT' && dx) return padCycle(PAD.cur, dx);  // left/right changes a dropdown's value
+  const a = padCenter(PAD.cur); let best = null, bs = Infinity;
+  for (const e of items) {
+    if (e === PAD.cur) continue;
+    const b = padCenter(e), along = (b.x - a.x) * dx + (b.y - a.y) * dy, across = Math.abs((b.x - a.x) * dy - (b.y - a.y) * dx);
+    if (along < 4) continue;  // only things that lie in the pressed direction
+    const score = along + across * 2.5; if (score < bs) { bs = score; best = e; }
+  }
+  if (best) padFocus(best);
+}
+function padPress() {
+  const e = PAD.cur; if (!PAD.on || !e || !e.isConnected) return padMove(0, 0);
+  if (e.tagName === 'SELECT') padCycle(e, 1);
+  else if (e.tagName === 'INPUT' && e.type !== 'checkbox' && e.type !== 'radio') e.focus();
+  else if (e instanceof SVGElement) e.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  else e.click();
+}
+function padBack() {
+  const ov = padTop();
+  if (ov) { const b = [...ov.querySelectorAll('button')].filter(padVisible).find(b => /^(Cancel|Close|Keep playing|Back)$/.test(b.textContent.trim())); if (b) b.click(); return; }
+  if (S.pick && !$('#modecancel').hidden) $('#modecancel').click();
+}
+function padPrimary() {  // Y: Roll dice, or Done building once rolled
+  if (padTop() || S.pick) return;
+  const b = [...$('#hand').querySelectorAll('button.primary')].find(padVisible); if (b) b.click();
+}
+function padAction(a) {
+  if (a === 'up') padMove(0, -1); else if (a === 'down') padMove(0, 1); else if (a === 'left') padMove(-1, 0); else if (a === 'right') padMove(1, 0);
+  else if (a === 'a') padPress(); else if (a === 'b') padBack(); else if (a === 'y') padPrimary();
+  else if (a === 'menu' && G && !padTop()) showHelp();
+}
+// every frame: keep the ring on a live element (the hand redraws its buttons often), and follow scope changes
+function padTick() {
+  if (!PAD.on) { padRing.style.display = 'none'; return; }
+  const sc = padScope();
+  if (sc !== PAD.scope) { PAD.scope = sc; PAD.cur = null; PAD.label = ''; }  // new window or new choice: start fresh
+  if (!PAD.cur || !PAD.cur.isConnected || !padVisible(PAD.cur)) {
+    const items = padItems();
+    padFocus(items.find(e => e.textContent === PAD.label && !(e instanceof SVGElement)) || (items.length ? padDefault(items) : null));
+  }
+  const e = PAD.cur; if (!e) { padRing.style.display = 'none'; return; }
+  const r = e.getBoundingClientRect(), round = e instanceof SVGElement && !e.classList.contains('mk-hex');
+  Object.assign(padRing.style, { display: 'block', left: r.left - 5 + 'px', top: r.top - 5 + 'px', width: r.width + 4 + 'px', height: r.height + 4 + 'px', borderRadius: round ? '50%' : '10px' });
+}
+// standard gamepad layout: 0 A, 1 B, 3 Y, 9 Menu, 12-15 D-pad; held directions repeat
+const PAD_BTN = { 12: 'up', 13: 'down', 14: 'left', 15: 'right', 0: 'a', 1: 'b', 3: 'y', 9: 'menu' };
+function padPoll() {
+  const now = performance.now(), down = new Set();
+  for (const gp of (navigator.getGamepads ? navigator.getGamepads() : [])) {
+    if (!gp) continue;
+    for (const i in PAD_BTN) if (gp.buttons[i] && gp.buttons[i].pressed) down.add(PAD_BTN[i]);
+    const x = gp.axes[0] || 0, y = gp.axes[1] || 0;
+    if (x < -0.5) down.add('left'); if (x > 0.5) down.add('right'); if (y < -0.5) down.add('up'); if (y > 0.5) down.add('down');
+  }
+  if (down.size) PAD.padAt = now;
+  for (const a of down) {
+    const h = PAD.held[a];
+    if (h === undefined) { PAD.held[a] = now + 380; padAction(a); }
+    else if (/up|down|left|right/.test(a) && now >= h) { PAD.held[a] = now + 110; padAction(a); }
+  }
+  for (const a in PAD.held) if (!down.has(a)) delete PAD.held[a];
+  padTick(); requestAnimationFrame(padPoll);
+}
+requestAnimationFrame(padPoll);
+addEventListener('gamepadconnected', () => toast('Controller ready: D-pad moves, A presses, B goes back, Y rolls or ends the turn'));
+document.addEventListener('keydown', ev => {
+  if (performance.now() - PAD.padAt < 150) return;  // the same press already arrived through the controller
+  const t = ev.target, typing = t.tagName === 'INPUT' && !['checkbox', 'radio'].includes(t.type);
+  const dir = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[ev.key];
+  if (dir) { if (typing && dir[0]) return; ev.preventDefault(); padMove(...dir); }
+  else if (ev.key === 'Escape') { ev.preventDefault(); padBack(); }
+  else if ((ev.key === 'Enter' || ev.key === ' ') && PAD.on && PAD.cur instanceof SVGElement) { ev.preventDefault(); padPress(); }
+});
+addEventListener('mousemove', ev => { if ((ev.movementX || ev.movementY) && PAD.on) { PAD.on = false; document.body.classList.remove('pad'); } });
 
 // ---------- boot ----------
 // Draws a board behind the start screen without touching the game in progress (if any).
