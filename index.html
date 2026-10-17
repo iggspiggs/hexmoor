@@ -138,6 +138,16 @@ label.variant b{display:block;font-weight:700}label.variant small{color:var(--mu
 kbd{font:inherit;font-size:12px;padding:1px 5px;border:1px solid var(--line);border-radius:4px;background:rgba(0,0,0,.25)}
 table.costs{border-collapse:collapse;width:100%;font-size:14px}
 table.costs td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:left}
+body.side #topbar{position:absolute;top:14px;flex-direction:column;align-items:stretch;gap:8px}
+body.side #status{max-width:none;font-size:16px}
+body.side #dice{margin-left:0;justify-content:center}
+body.side #dice[hidden]{display:flex!important;visibility:hidden}
+body.side #bottom{position:absolute;top:14px;bottom:14px;justify-content:flex-start;align-items:stretch}
+body.side #hand{width:100%}
+body.side .chips{display:grid;grid-template-columns:repeat(5,1fr)}
+body.side .chip{min-width:0}
+body.side .actions{display:grid;grid-template-columns:1fr 1fr}
+body.side .actions .primary,body.side .actions .tok{grid-column:1/-1;margin-left:0!important}
 @media (max-width:760px){
   #players{width:150px}
   .pl{padding:6px 8px;font-size:12.5px}
@@ -1403,12 +1413,22 @@ S.buildBoard = function () {
 function fitBoard() {
   const root = $('#board'), top = $('#topbar').getBoundingClientRect().bottom + 6;
   S.handH = Math.max(S.handH || 96, $('#bottom').getBoundingClientRect().height);
-  const h = Math.max(220, innerHeight - top - S.handH - 22); root.style.top = top + 'px'; root.style.height = h + 'px';
-  // the board keeps its shape, so work out how wide it really draws and park the player cards right beside it
-  const vb = root.viewBox.baseVal, pl = $('#players'), pw = pl.hidden ? 0 : pl.offsetWidth, gap = pw ? 28 : 0;
-  if (!vb || !vb.width) return;
-  const bw = Math.min(innerWidth - 28 - pw - gap, h * vb.width / vb.height), left = Math.max(14, (innerWidth - pw - gap - bw) / 2);
-  pl.style.left = left + 'px'; root.style.left = left + pw + gap + 'px'; root.style.width = bw + 'px';
+  const vb = root.viewBox.baseVal, pl = $('#players'), tb = $('#topbar'), bt = $('#bottom');
+  // wide screens (TVs): three columns, so the board gets the full height. Status and players | board | hand.
+  const side = innerWidth >= 1000 && innerWidth / innerHeight >= 1.4 && vb && vb.width;
+  document.body.classList.toggle('side', !!side);
+  if (side) {
+    const m = 14, gap = 24, L = 280, R = 340, h = innerHeight - 2 * m;
+    const bw = Math.min(innerWidth - 2 * m - L - R - 2 * gap, h * vb.width / vb.height), left = Math.max(m, (innerWidth - L - R - 2 * gap - bw) / 2);
+    Object.assign(tb.style, { left: left + 'px', width: L + 'px' });
+    Object.assign(pl.style, { left: left + 'px', width: L + 'px', top: tb.getBoundingClientRect().bottom + 10 + 'px' });
+    Object.assign(root.style, { left: left + L + gap + 'px', top: m + 'px', width: bw + 'px', height: h + 'px' });
+    Object.assign(bt.style, { left: left + L + gap + bw + gap + 'px', width: R + 'px' });
+    return;
+  }
+  for (const e of [tb, pl, bt]) e.style.left = e.style.width = e.style.top = '';
+  root.style.left = root.style.width = '';
+  root.style.top = top + 'px'; root.style.height = Math.max(220, innerHeight - top - S.handH - 22) + 'px';
 }
 window.addEventListener('resize', fitBoard);
 function placeRobber(hid) { const h = B.H[hid]; S.robber.style.display = h ? '' : 'none'; if (!h) return; S.robber.style.transform = `translate(${f2(h.cx + 0.48)}px, ${f2(h.cz + 0.04)}px) scale(1.3)`; }
@@ -1477,6 +1497,12 @@ S.animateDice = function (a, b) {
 function setStatus(html, dice) { $('#status').innerHTML = html + (dice ? `<span class="dice">${dice[0]} + ${dice[1]} = ${dice[0] + dice[1]}</span>` : ''); }
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2600); }
 function renderLog() { const L = $('#log'); if (!L) return; L.innerHTML = G.log.slice(-90).map(m => `<div>${m}</div>`).join(''); L.scrollTop = L.scrollHeight; }
+function fullBtn() {
+  if (!document.fullscreenEnabled) return null;
+  const on = !!document.fullscreenElement;
+  return el('button', { class: 'small quiet', onclick: () => (on ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => toast('Full screen isn’t available here')) }, on ? 'Exit full screen' : 'Full screen');
+}
+document.addEventListener('fullscreenchange', () => renderHUD());
 function renderHUD() {
   if (!G) return;
   requestAnimationFrame(fitBoard);
@@ -1496,7 +1522,7 @@ function renderHUD() {
     return;
   }
   if (G.phase === 'setup') {
-    hand.innerHTML = ''; hand.append(el('div', { class: 'hhead' }, el('span', { class: 'who', style: `color:${colorOf(p.id)}` }, p.name), el('span', { class: 'sub' }, `Setup · settlement ${Math.min(G.setupIdx < n ? 1 : 2, 2)} of 2`), el('span', { class: 'spacer' }), el('button', { class: 'small quiet', onclick: showHelp }, 'Rules'), el('button', { class: 'small quiet', onclick: confirmNewGame }, 'Quit')));
+    hand.innerHTML = ''; hand.append(el('div', { class: 'hhead' }, el('span', { class: 'who', style: `color:${colorOf(p.id)}` }, p.name), el('span', { class: 'sub' }, `Setup · settlement ${Math.min(G.setupIdx < n ? 1 : 2, 2)} of 2`), el('span', { class: 'spacer' }), fullBtn(), el('button', { class: 'small quiet', onclick: showHelp }, 'Rules'), el('button', { class: 'small quiet', onclick: confirmNewGame }, 'Quit')));
     return;
   }
   const mine = p.human;
@@ -1505,7 +1531,7 @@ function renderHUD() {
   else setStatus(mine ? `${esc(p.name)}: build, trade, or end the turn` : `${esc(p.name)} is thinking…`, G.dice);
   const disabled = busy || !!S.pick || !mine;
   hand.innerHTML = '';
-  const head = el('div', { class: 'hhead' }, el('span', { class: 'who', style: `color:${colorOf(p.id)}` }, p.name), el('span', { class: 'sub' }, `Turn ${G.turn} · ${totalVP(p.id)} of ${G.opts.target} points${hiddenVP(p.id) ? ` (${hiddenVP(p.id)} hidden)` : ''}`), el('span', { class: 'spacer' }), el('button', { class: 'small quiet', onclick: showHelp }, 'Rules'), el('button', { class: 'small quiet', onclick: confirmNewGame }, 'Quit'));
+  const head = el('div', { class: 'hhead' }, el('span', { class: 'who', style: `color:${colorOf(p.id)}` }, p.name), el('span', { class: 'sub' }, `Turn ${G.turn} · ${totalVP(p.id)} of ${G.opts.target} points${hiddenVP(p.id) ? ` (${hiddenVP(p.id)} hidden)` : ''}`), el('span', { class: 'spacer' }), fullBtn(), el('button', { class: 'small quiet', onclick: showHelp }, 'Rules'), el('button', { class: 'small quiet', onclick: confirmNewGame }, 'Quit'));
   hand.append(head);
   if (mine) {
     head.insertBefore(el('div', { class: 'chips' }, RES.map(r => el('div', { class: 'chip' + (p.res[r] ? '' : ' zero'), style: `--c:${RES_COLOR[r]}` }, el('b', {}, String(p.res[r])), el('small', {}, RES_NAME[r]), el('span', { class: 'rate' }, `${tradeRate(p.id, r)}:1`)))), head.querySelector('.spacer'));
