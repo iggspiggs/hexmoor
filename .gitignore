@@ -1,0 +1,4 @@
+# Only the game itself is deployed; backups and the unused 3D textures stay local.
+*
+!.gitignore
+!index.html
