@@ -1738,10 +1738,10 @@ function showHelp() {
       ${G && G.opts.fish ? '<p><b>Fishermen.</b> The lake pays fish on 2, 3, 11 and 12; each fishing ground on its number (settlement 1 draw, city 2). Spend fish: 2 send the robber away, 3 steal a card, 4 take any resource, 5 build a road, 7 take a development card. Fish can’t be stolen or lost to a 7. Whoever holds the old boot needs 1 extra point to win, and may pass it to a player with at least as many points.</p>' : ''}
       ${G && G.opts.rivers ? '<p><b>Rivers.</b> Roads can’t run along a river; build a bridge (1 Wood, 2 Brick) there instead. Gold: +1 for a settlement or road by a river, +3 for a bridge. Pay 2 gold for a resource (twice a turn, then 4). The richest player gets +1 point; everyone tied for the fewest coins gets −2.</p>' : ''}
       ${G && G.opts.friendly ? '<p><b>Friendly robber.</b> The robber can’t be placed next to, or steal from, a player with 2 points or fewer.</p>' : ''}
-      <p><b>Controller.</b> D-pad or left stick moves the highlight, A presses, B cancels or closes, Y rolls the dice or ends your turn, Menu opens these rules. Arrow keys, Enter and Esc do the same on a keyboard.</p>
+      <p><b>Controller.</b> D-pad or left stick moves the highlight, A presses, B cancels or closes, Y rolls the dice or ends your turn, Menu opens these rules (with a Reload page button). View (the two-squares button) hands the controller back to the browser’s pointer, and pressing it again takes it back. Arrow keys, Enter and Esc do the same on a keyboard.</p>
       <p class="hint">Settlements need two edges of space from any other building and must touch your road. A 7 makes everyone with more than 7 cards discard half, then the roller moves the robber and steals a card. Trade with the bank at 4:1, or 3:1 / 2:1 from a harbor. One development card per turn, never on the turn it was bought.</p>` }),
-    buttons: [{ label: 'Close', value: true, primary: true }]
-  });
+    buttons: [{ label: 'Reload page', value: 'reload' }, { label: 'Close', value: true, primary: true }]
+  }).then(v => { if (v === 'reload') location.reload(); });
 }
 async function confirmNewGame() {
   const ok = await modal({ title: 'Abandon this game?', body: el('p', {}, 'The current game will be lost.'), buttons: [{ label: 'Keep playing', value: false }, { label: 'Abandon', value: true, primary: true }] });
@@ -1829,7 +1829,7 @@ function resumeGame(saved) {
 // The D-pad or left stick moves a focus ring between whatever can be pressed right now: the open window if there
 // is one, otherwise the glowing board spots plus the action buttons. A presses, B backs out, Y rolls or ends the turn,
 // Menu opens the rules. Arrow keys, Enter and Esc do the same on a keyboard; the ring hides again when the mouse moves.
-const PAD = { on: false, cur: null, scope: null, label: '', last: null, held: {}, padAt: 0 };
+const PAD = { paused: false, on: false, cur: null, scope: null, label: '', last: null, held: {}, padAt: 0 };
 try { navigator.gamepadInputEmulation = 'gamepad'; } catch (e) { }  // older Xbox Edge: give the controller to the page, not the cursor
 const padRing = $('#padring');
 function padVisible(e) { if (e.disabled || e.closest('[hidden]')) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; }
@@ -1891,7 +1891,13 @@ function padPrimary() {  // Y: Roll dice, or Done building once rolled
 function padAction(a) {
   if (a === 'up') padMove(0, -1); else if (a === 'down') padMove(0, 1); else if (a === 'left') padMove(-1, 0); else if (a === 'right') padMove(1, 0);
   else if (a === 'a') padPress(); else if (a === 'b') padBack(); else if (a === 'y') padPrimary();
-  else if (a === 'menu' && G && !padTop()) showHelp();
+  else if (a === 'menu' && !padTop()) showHelp();
+  else if (a === 'view') padPause(!PAD.paused);
+}
+function padPause(on) {
+  PAD.paused = on; PAD.on = false; document.body.classList.remove('pad');
+  try { navigator.gamepadInputEmulation = on ? 'mouse' : 'gamepad'; } catch (e) { }
+  toast(on ? 'Pointer mode: the controller drives the browser. Press View again for game controls.' : 'Game controls are back.');
 }
 // every frame: keep the ring on a live element (the hand redraws its buttons often), and follow scope changes
 function padTick() {
@@ -1906,8 +1912,8 @@ function padTick() {
   const r = e.getBoundingClientRect(), round = e instanceof SVGElement && !e.classList.contains('mk-hex');
   Object.assign(padRing.style, { display: 'block', left: r.left - 5 + 'px', top: r.top - 5 + 'px', width: r.width + 4 + 'px', height: r.height + 4 + 'px', borderRadius: round ? '50%' : '10px' });
 }
-// standard gamepad layout: 0 A, 1 B, 3 Y, 9 Menu, 12-15 D-pad; held directions repeat
-const PAD_BTN = { 12: 'up', 13: 'down', 14: 'left', 15: 'right', 0: 'a', 1: 'b', 3: 'y', 9: 'menu' };
+// standard gamepad layout: 0 A, 1 B, 3 Y, 8 View, 9 Menu, 12-15 D-pad; held directions repeat
+const PAD_BTN = { 8: 'view', 12: 'up', 13: 'down', 14: 'left', 15: 'right', 0: 'a', 1: 'b', 3: 'y', 9: 'menu' };
 function padPoll() {
   const now = performance.now(), down = new Set();
   for (const gp of (navigator.getGamepads ? navigator.getGamepads() : [])) {
@@ -1918,6 +1924,7 @@ function padPoll() {
   }
   if (down.size) PAD.padAt = now;
   for (const a of down) {
+    if (PAD.paused && a !== 'view') continue;  // pointer mode: only View is listened to
     const h = PAD.held[a];
     if (h === undefined) { PAD.held[a] = now + 380; padAction(a); }
     else if (/up|down|left|right/.test(a) && now >= h) { PAD.held[a] = now + 110; padAction(a); }
